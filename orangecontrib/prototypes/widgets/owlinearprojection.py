@@ -3,6 +3,7 @@ Linear projection widget
 ------------------------
 
 """
+import sys
 
 from functools import reduce
 from operator import itemgetter
@@ -271,9 +272,9 @@ class OWLinearProjection(widget.OWWidget):
         self.__selection_item = None
         self.__replot_requested = False
 
-        box = gui.widgetBox(self.controlArea, "Axes")
+        box = gui.widgetBox(self.controlArea, "Axes", addSpace=False)
 
-        box1 = gui.widgetBox(box, "Displayed", margin=0)
+        box1 = gui.widgetBox(box, "Displayed", margin=0, addSpace=False)
         box1.setFlat(True)
         self.active_view = view = QListView(
             sizePolicy=QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Ignored),
@@ -283,7 +284,7 @@ class OWLinearProjection(widget.OWWidget):
             dragDropOverwriteMode=False,
             dragDropMode=QListView.DragDrop,
             showDropIndicator=True,
-            minimumHeight=100,
+            minimumHeight=90,
         )
 
         view.viewport().setAcceptDrops(True)
@@ -305,7 +306,7 @@ class OWLinearProjection(widget.OWWidget):
 
         box1.layout().addWidget(view)
 
-        box1 = gui.widgetBox(box, "Other", margin=0)
+        box1 = gui.widgetBox(box, "Other", margin=0, addSpace=False)
         box1.setFlat(True)
         self.other_view = view = QListView(
             sizePolicy=QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Ignored),
@@ -315,7 +316,7 @@ class OWLinearProjection(widget.OWWidget):
             dragDropOverwriteMode=False,
             dragDropMode=QListView.DragDrop,
             showDropIndicator=True,
-            minimumHeight=150
+            minimumHeight=100
         )
         view.viewport().setAcceptDrops(True)
         moveup = QtGui.QAction(
@@ -340,13 +341,13 @@ class OWLinearProjection(widget.OWWidget):
         )
         box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        box = gui.widgetBox(self.controlArea, "Jittering")
+        box = gui.widgetBox(self.controlArea, "Jittering", addSpace=False)
         gui.comboBox(box, self, "jitter_value",
                      items=["None", "0.01%", "0.1%", "0.5%", "1%", "2%"],
                      callback=self._invalidate_plot)
         box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        box = gui.widgetBox(self.controlArea, "Points")
+        box = gui.widgetBox(self.controlArea, "Points", addSpace=False)
         box.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Maximum)
 
         self.colorvar_model = itemmodels.VariableListModel(parent=self)
@@ -398,7 +399,8 @@ class OWLinearProjection(widget.OWWidget):
         radius_slider.valueChanged.connect(self._set_hide_radius)
 
         form.addRow("Hide radius", radius_slider)
-        toolbox = gui.widgetBox(self.controlArea, "Zoom/Select")
+        toolbox = gui.widgetBox(self.controlArea, "Zoom/Select",
+                                addSpace=False)
         toollayout = QtGui.QHBoxLayout()
         toolbox.layout().addLayout(toollayout)
 
@@ -413,6 +415,7 @@ class OWLinearProjection(widget.OWWidget):
         self.view.setFrameStyle(QtGui.QFrame.StyledPanel)
         self.viewbox = pg.ViewBox(enableMouse=True, enableMenu=False)
         self.viewbox.grabGesture(Qt.PinchGesture)
+        self.viewbox.setAspectLocked(True)
         self.view.setCentralItem(self.viewbox)
 
         self.mainArea.layout().addWidget(self.view)
@@ -780,9 +783,10 @@ class OWLinearProjection(widget.OWWidget):
         mask = ~numpy.logical_or.reduce(numpy.isnan(coords), axis=0)
         coords = coords[:, mask]
 
-        X, Y = numpy.dot(axes, coords)
-        X = plotutils.normalized(X)
-        Y = plotutils.normalized(Y)
+        XY = numpy.dot(axes, coords).T
+        XY = (XY - numpy.mean(XY, axis=0))
+        XY = XY / numpy.max(numpy.linalg.norm(XY, axis=1))
+        X, Y = XY.T
 
         pen_data, brush_data = self._color_data(mask)
         size_data = self._size_data(mask)
@@ -815,6 +819,8 @@ class OWLinearProjection(widget.OWWidget):
         for i, axis in enumerate(axes.T):
             axis_item = AxisItem(line=QLineF(0, 0, axis[0], axis[1]),
                                  label=variables[i].name)
+            axis_item.setPen(pg.mkPen((100, 100, 100)))
+            axis_item.setArrowVisible(False)
             self.viewbox.addItem(axis_item)
             dist = distance.euclidean((0, 0), (axis[0], axis[1]))
             self._axes.append([axis_item, dist])
@@ -1649,22 +1655,25 @@ class linproj:
         return numpy.dot(axes, X)
 
 
-def test_main(argv=None):
-    import sys
+def test_main(argv=sys.argv):
     import sip
+    app = QApplication(list(argv))
+    argv = app.arguments()
 
-    argv = sys.argv[1:] if argv is None else argv
-    if argv:
-        filename = argv[0]
+    if len(argv) > 1:
+        filename = argv[1]
     else:
         filename = "iris"
 
     data = Orange.data.Table(filename)
-
-    app = QApplication([])
+    N, P = data.X.shape
+    projmatrix = numpy.random.random((P, 2)) * 2 - 1
+    proj = data.from_numpy(Orange.data.Domain(data.domain.attributes),
+                           projmatrix.T)
     w = OWLinearProjection()
     w.set_data(data)
     w.set_subset_data(data[::10])
+    w.set_projection(proj)
     w.handleNewSignals()
     w.show()
     w.raise_()
@@ -1677,5 +1686,4 @@ def test_main(argv=None):
 
 
 if __name__ == "__main__":
-    import sys
     sys.exit(test_main())
