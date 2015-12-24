@@ -111,68 +111,74 @@ class AxisItem(pg.GraphicsObject):
         self.setFlag(pg.GraphicsObject.ItemHasNoContents)
 
         if line is None:
-            line = QLineF(0, 0, 1, 0)
+            line = QtCore.QLineF(0, 0, 1, 0)
 
-        self._spine = QGraphicsLineItem(line, self)
-        angle = QLineF(0, 0, 1, 0).angleTo(line)
-        angle = (180 - angle) % 360
-        dx = line.x2() - line.x1()
-        dy = line.y2() - line.y1()
-        rad = numpy.arctan2(dy, dx)
-        angle = (rad * 180 / numpy.pi) % 360
+        self._spine = QtGui.QGraphicsLineItem(line, self)
+        angle = line.angle()
 
-        self._arrow = pg.ArrowItem(parent=self, angle=180 - angle)
+        self._arrow = pg.ArrowItem(parent=self, angle=0)
         self._arrow.setPos(self._spine.line().p2())
+        self._arrow.setRotation(angle)
 
         self._label = pg.TextItem(text=label, color=(10, 10, 10))
         self._label.setParentItem(self)
         self._label.setPos(self._spine.line().p2())
 
     def setLabel(self, label):
-        if label != self._label:
-            self._label = label
+        if label != self._label.textItem.toPlainText():
             self._label.setText(label)
+
+    def setLine(self, *line):
+        line = QtCore.QLineF(*line)
+        if line != self._spine.line():
+            self._spine.setLine(line)
+            self.__updateLayout()
 
     def setPen(self, pen):
         self._spine.setPen(pen)
+
+    def setArrowVisible(self, visible):
+        self._arrow.setVisible(visible)
 
     def paint(self, painter, option, widget):
         pass
 
     def boundingRect(self):
-        return QRectF()
+        return QtCore.QRectF()
 
     def viewTransformChanged(self):
-        self.__updateLabelPos()
+        self.__updateLayout()
 
-    def __updateLabelPos(self):
-        T = self.viewTransform()
-        if T is not None:
-            Tinv, ok = T.inverted()
-        else:
-            Tinv, ok = None, False
-        if not ok:
-            T = Tinv = QtGui.QTransform()
+    def __updateLayout(self):
+        T = self.sceneTransform()
+        if T is None:
+            T = QtGui.QTransform()
 
-        # map the axis spine to viewbox coord. system
-        viewbox_line = Tinv.map(self._spine.line())
+        # map the axis spine to scene coord. system (it should suffice to
+        # map up to PlotItem?)
+        viewbox_line = T.map(self._spine.line())
         angle = viewbox_line.angle()
+        assert not numpy.isnan(angle)
         # note in Qt the y axis is inverted (90 degree angle 'points' down)
-        left_quad = 270 <= angle <= 360 or -0.0 <= angle < 90
+        left_quad = 270 < angle <= 360 or -0.0 <= angle < 90
 
         # position the text label along the viewbox_line
-        label_pos = viewbox_line.pointAt(0.90)
+        label_pos = self._spine.line().pointAt(0.90)
 
         if left_quad:
+            # Anchor the text under the axis spine
             anchor = (0.5, -0.1)
         else:
+            # Anchor the text over the axis spine
             anchor = (0.5, 1.1)
 
-        pos = T.map(label_pos)
-        self._label.setPos(pos)
+        self._label.setPos(label_pos)
         self._label.anchor = pg.Point(*anchor)
         self._label.updateText()
-        self._label.setRotation(angle if left_quad else angle - 180)
+        self._label.setRotation(-angle if left_quad else 180 - angle)
+
+        self._arrow.setPos(self._spine.line().p2())
+        self._arrow.setRotation(180 - angle)
 
 
 class LegendItem(LegendItem):
