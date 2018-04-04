@@ -6,7 +6,7 @@ from typing import List, Sequence, Optional
 import numpy as np
 
 from PyQt5.QtCore import Qt, QSize, QAbstractListModel
-from PyQt5.QtGui import QStandardItem, QStandardItemModel, QVector3D
+from PyQt5.QtGui import QStandardItem, QStandardItemModel, QVector3D, QColor
 from PyQt5.QtWidgets import (
     QWidget, QFormLayout, QComboBox, QApplication, QGroupBox
 )
@@ -17,7 +17,7 @@ from PyQt5.QtDataVisualization import (
 
 import Orange.data
 from Orange.widgets import widget
-from Orange.widgets.utils import itemmodels
+from Orange.widgets.utils import itemmodels, colorbrewer
 
 
 class Data(SimpleNamespace):
@@ -185,6 +185,8 @@ class OWScatterPlot(widget.OWWidget):
 
         ci = self.axesgui.color.currentIndex()
         color_dims = shape_dims = 1
+        varcolor = varshape = None
+
         if ci != -1:
             varcolor = self.models.color[ci]
             color, _ = self.data.get_column_view(varcolor)
@@ -218,18 +220,26 @@ class OWScatterPlot(widget.OWWidget):
 
         group = np.ravel_multi_index((color, shape), dims=(color_dims, shape_dims))
         keys, indices = group_by_indices(group)
-        theme = self.__scatter.activeTheme()
+        theme = self.__scatter.activeTheme()  # type: Q3DTheme
+        base_colors = theme.baseColors()
+        base_colors = colorbrewer.colorSchemes["qualitative"]["Dark2"][8]
+        base_colors = [QColor(*c) for c in base_colors]
+        mesh_smooth = x.size < 300
+        base_mesh = [QScatter3DSeries.MeshPoint]
         for group, gindices in zip(keys, indices):
-            color_i = group // color_dims
-            shape_i = group % color_dims
+            color_i, shape_i = np.unravel_index(group, (color_dims, shape_dims))
             array = [QScatterDataItem(QVector3D(*t))
                      for t in zip(x[gindices], y[gindices], z[gindices])]
             ser = QScatter3DSeries()
             ser.setItemLabelFormat(
                 "@xTitle: @xLabel @yTitle: @yLabel @zTitle: @zLabel"
             )
-            ser.setMeshSmooth(True)
+            # print(color_i, len(base_colors))
+
+            ser.setMeshSmooth(mesh_smooth)
             ser.dataProxy().addItems(array)
+            ser.setBaseColor(base_colors[color_i % len(base_colors)])
+            ser.setMesh(QScatter3DSeries.MeshPoint)
             series.append(ser)
 
         self.__scatter.axisX().setTitle(self.axesgui.x.currentText())
