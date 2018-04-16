@@ -183,6 +183,8 @@ class OWScatterPlot(widget.OWWidget):
         y, _ = self.data.get_column_view(vary)
         z, _ = self.data.get_column_view(varz)
 
+        xymask = np.isfinite(x) & np.isfinite(y)
+
         ci = self.axesgui.color.currentIndex()
         color_dims = shape_dims = 1
         varcolor = varshape = None
@@ -198,8 +200,11 @@ class OWScatterPlot(widget.OWWidget):
                 else:
                     cmin, cmax = 0., 1.0
                 color_dims = 256
-                edges = np.linspace(cmin, cmax, color_dims, endpoint=True)
-                color = np.digitize(color_non_na, bins=edges) - 1
+                edges = np.linspace(cmin, cmax, color_dims - 1, endpoint=True)
+                color = np.empty_like(color, dtype=np.uint8)
+                color[mask] = np.digitize(color_non_na, bins=edges) - 1
+                color[~mask] = np.iinfo(np.uint8).max
+                # print(color)
                 color_map = "jet"
             else:
                 mask = np.isfinite(color)
