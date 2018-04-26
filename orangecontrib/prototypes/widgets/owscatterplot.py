@@ -1,14 +1,14 @@
 import sys
 
 from types import SimpleNamespace
-from typing import List, Sequence, Optional
+from typing import List, Sequence, Optional, NamedTuple
 
 import numpy as np
 
 from PyQt5.QtCore import Qt, QSize, QAbstractListModel
 from PyQt5.QtGui import QStandardItem, QStandardItemModel, QVector3D, QColor
 from PyQt5.QtWidgets import (
-    QWidget, QFormLayout, QComboBox, QApplication, QGroupBox
+    QWidget, QFormLayout, QComboBox, QApplication, QGroupBox, QListView
 )
 
 from PyQt5.QtDataVisualization import (
@@ -32,6 +32,14 @@ class Models(SimpleNamespace):
     color = ...  # type: QAbstractListModel
     shape = ...  # type: QAbstractListModel
     size = ...   # type: QAbstractListModel
+
+    def __init__(self, parent=None):
+        self.x = itemmodels.VariableListModel(parent)
+        self.y = itemmodels.VariableListModel(parent)
+        self.z = itemmodels.VariableListModel(parent)
+        self.color = itemmodels.VariableListModel(parent)
+        self.shape = itemmodels.VariableListModel(parent)
+        self.size = itemmodels.VariableListModel(parent)
 
 
 class OWScatterPlot(widget.OWWidget):
@@ -59,7 +67,9 @@ class OWScatterPlot(widget.OWWidget):
         self._inputs.subset = None  # type: Optional[Orange.data.Table]
 
         self._plotdata = SimpleNamespace()
+        self.models = Models(
 
+        )
         self.models = SimpleNamespace()
         self.models.x = itemmodels.VariableListModel(parent=self)
         self.models.y = itemmodels.VariableListModel(parent=self)
@@ -70,22 +80,34 @@ class OWScatterPlot(widget.OWWidget):
 
         box = QGroupBox("Axes")
         form = QFormLayout(
-            labelAlignment=Qt.AlignLeft,
+            # labelAlignment=Qt.AlignLeft,
             fieldGrowthPolicy=QFormLayout.AllNonFixedFieldsGrow,
         )
 
+        def combobox(*args, **kwargs):
+            cb = QComboBox(
+                *args,
+                minimumContentsLength=12,
+                sizeAdjustPolicy=QComboBox.AdjustToMinimumContentsLengthWithIcon,
+                **kwargs
+            )
+            view = cb.view()  # type: QListView
+            assert isinstance(view, QListView)
+            view.setUniformItemSizes(True)
+            return cb
+
         self.axesgui = SimpleNamespace()
-        self.axesgui.x = QComboBox(
+        self.axesgui.x = combobox(
             self, objectName="cb-x", activated=self._updateplot)
-        self.axesgui.y = QComboBox(
+        self.axesgui.y = combobox(
             self, objectName="cb-y", activated=self._updateplot)
-        self.axesgui.z = QComboBox(
+        self.axesgui.z = combobox(
             self, objectName="cb-z", activated=self._updateplot)
-        self.axesgui.color = QComboBox(
+        self.axesgui.color = combobox(
             self, objectName="cb-color", activated=self._updateplot)
-        self.axesgui.shape = QComboBox(
+        self.axesgui.shape = combobox(
             self, objectName="cb-shape", activated=self._updateplot)
-        self.axesgui.size = QComboBox(
+        self.axesgui.size = combobox(
             self, objectName="cb-size", activated=self._updateplot)
 
         self.axesgui.x.setModel(self.models.x)
