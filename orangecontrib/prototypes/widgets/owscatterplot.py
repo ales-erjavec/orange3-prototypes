@@ -6,7 +6,7 @@ from typing import List, Sequence, Optional, NamedTuple
 import numpy as np
 
 from PyQt5.QtCore import Qt, QSize, QAbstractListModel
-from PyQt5.QtGui import QStandardItem, QStandardItemModel, QVector3D, QColor
+from PyQt5.QtGui import QStandardItem, QStandardItemModel, QVector3D, QColor, QLinearGradient
 from PyQt5.QtWidgets import (
     QWidget, QFormLayout, QComboBox, QApplication, QGroupBox, QListView
 )
@@ -18,6 +18,13 @@ from PyQt5.QtDataVisualization import (
 import Orange.data
 from Orange.widgets import widget
 from Orange.widgets.utils import itemmodels, colorbrewer
+
+ColorMaps = {}
+# Diverging
+RdYlGn = "RdYlGr"
+PRGn = "PRGn"
+RdBu = "RdBl"
+RdGy = "RdGy"
 
 
 class Data(SimpleNamespace):
@@ -70,7 +77,7 @@ class OWScatterPlot(widget.OWWidget):
         self.models = Models(
 
         )
-        self.models = SimpleNamespace()
+        self.models = SimpleNamespace()  # type: Models
         self.models.x = itemmodels.VariableListModel(parent=self)
         self.models.y = itemmodels.VariableListModel(parent=self)
         self.models.z = itemmodels.VariableListModel(parent=self)
@@ -172,7 +179,7 @@ class OWScatterPlot(widget.OWWidget):
             self._plotdata.data = None
 
             def data_(var):
-                values, mask = get_column_data(data, vars)
+                values, mask = get_column_maarray(data, var)
                 return values, mask
 
             self._plotdata.data_source = data_
@@ -205,15 +212,18 @@ class OWScatterPlot(widget.OWWidget):
         y, _ = self.data.get_column_view(vary)
         z, _ = self.data.get_column_view(varz)
 
-        xymask = np.isfinite(x) & np.isfinite(y)
-
+        xyzmask = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
+        x, y, z = x[xyzmask], y[xyzmask], z[xyzmask]
         ci = self.axesgui.color.currentIndex()
         color_dims = shape_dims = 1
         varcolor = varshape = None
-
+        color_map = None
         if ci != -1:
             varcolor = self.models.color[ci]
             color, _ = self.data.get_column_view(varcolor)
+            if xyzmask.size:
+                color = color[xyzmask]
+
             if varcolor.is_continuous:
                 mask = np.isfinite(color)
                 color_non_na = color[mask]
@@ -221,19 +231,28 @@ class OWScatterPlot(widget.OWWidget):
                     cmin, cmax = np.min(color_non_na), np.max(color_non_na)
                 else:
                     cmin, cmax = 0., 1.0
-                color_dims = 256
-                edges = np.linspace(cmin, cmax, color_dims - 1, endpoint=True)
+                base_colors = colorbrewer.colorSchemes["sequential"]['OrRd'][9]
+                base_colors = [QColor(*c) for c in base_colors]
+                base_colors += [QColor(Qt.gray)]
+                color_dims = len(base_colors)
+                edges = np.linspace(cmin, np.nextafter(cmax, np.inf),
+                                    color_dims - 1, endpoint=True)
                 color = np.empty_like(color, dtype=np.uint8)
                 color[mask] = np.digitize(color_non_na, bins=edges) - 1
-                color[~mask] = np.iinfo(np.uint8).max
+                color[~mask] = color_dims - 1
                 # print(color)
                 color_map = "jet"
             else:
                 mask = np.isfinite(color)
                 color_non_na = color[mask]
-                color = color.astype(np.intp)
-                color_map = ...
+                color = np.empty_like(color, dtype=np.intp)
+                color[mask] = color_non_na.astype(np.intp)
+                color[~mask] = len(varcolor.values)
                 color_dims = len(varcolor.values) + 1
+                color_map = "Dark2"
+                base_colors = colorbrewer.colorSchemes["qualitative"]["Dark2"][8]
+                base_colors = [QColor(*c) for c in base_colors[:color_dims - 1]]
+                base_colors += [QColor(Qt.gray)]
         else:
             color = np.zeros(x.shape, int)
 
@@ -248,11 +267,14 @@ class OWScatterPlot(widget.OWWidget):
         group = np.ravel_multi_index((color, shape), dims=(color_dims, shape_dims))
         keys, indices = group_by_indices(group)
         theme = self.__scatter.activeTheme()  # type: Q3DTheme
-        base_colors = theme.baseColors()
-        base_colors = colorbrewer.colorSchemes["qualitative"]["Dark2"][8]
-        base_colors = [QColor(*c) for c in base_colors]
-        mesh_smooth = x.size < 300
+
+        if color_map is None:
+            base_colors = colorbrewer.colorSchemes["qualitative"]["Dark2"][8]
+            base_colors = [QColor(*c) for c in base_colors]
+
+        mesh_smooth = x.size < 1000
         base_mesh = [QScatter3DSeries.MeshPoint]
+        print(x[:10], y[:10], z[:10])
         for group, gindices in zip(keys, indices):
             color_i, shape_i = np.unravel_index(group, (color_dims, shape_dims))
             array = [QScatterDataItem(QVector3D(*t))
@@ -261,8 +283,6 @@ class OWScatterPlot(widget.OWWidget):
             ser.setItemLabelFormat(
                 "@xTitle: @xLabel @yTitle: @yLabel @zTitle: @zLabel"
             )
-            # print(color_i, len(base_colors))
-
             ser.setMeshSmooth(mesh_smooth)
             ser.dataProxy().addItems(array)
             ser.setBaseColor(base_colors[color_i % len(base_colors)])
@@ -310,16 +330,37 @@ from numbers import Integral
 from typing import Union
 
 
-def get_column_data(data, column, dtype=None):
-    # type: (Orange.data.Table, Union[int, Orange.data.Variable]) -> np.ma.MaskedArray
+def get_column_maarray(
+        data,    # type: Orange.data.Table
+        column,  # type: Union[int, str, Orange.data.Variable]
+        dtype=None  # type: Optional[np.dtype]
+    ):
+    # type: (...) -> np.ma.MaskedArray
     d, isview = data.get_column_view(column)
-    var = data.domain[column] # type: Orange.data.Variable
+    if isinstance(column, int):
+        var = data.domain[column]  # type: Orange.data.Variable
+    elif isinstance(column, Orange.data.Variable):
+        var = column
+    else:
+        raise TypeError(type(column))
 
-    if var.is_primitive and not np.issubdtype(d.dtype, np.inexact):
-        d = d.astype(np.float)
+    if var.is_primitive and not np.issubdtype(d.dtype, np.floating) \
+            and dtype is None:
+        # object array from metas
+        dtype = np.float
+
+    if dtype is not None and d.dtype != dtype:
+        d = d.astype(dtype)
 
     if var.is_primitive():
-        pass
+        namask = np.isnan(d)
+    else:
+        namask = (d == var.Unknown)  # ?
+
+    if np.any(namask):
+        return np.ma.masked_array(d)
+    else:
+        return np.ma.masked_array(d, namask)
 
 
 def main(argv=None):
@@ -330,7 +371,7 @@ def main(argv=None):
     if len(argv) > 1:
         filename = argv[1]
     else:
-        filename = "iris.tab"
+        filename = "brown-selected.tab"
     data = Orange.data.Table(filename)
 
     w = OWScatterPlot()
@@ -338,6 +379,7 @@ def main(argv=None):
     w.set_data(data)
     w.handleNewSignals()
     app.exec()
+    w.saveSettings()
     w.onDeleteWidget()
     return 0
 
