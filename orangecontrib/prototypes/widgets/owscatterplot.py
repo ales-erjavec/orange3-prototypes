@@ -5,7 +5,7 @@ from typing import List, Sequence, Optional, NamedTuple
 
 import numpy as np
 
-from PyQt5.QtCore import Qt, QSize, QAbstractListModel
+from PyQt5.QtCore import Qt, QSize, QAbstractListModel, QEvent, QMetaObject
 from PyQt5.QtGui import QStandardItem, QStandardItemModel, QVector3D, QColor, QLinearGradient
 from PyQt5.QtWidgets import (
     QWidget, QFormLayout, QComboBox, QApplication, QGroupBox, QListView
@@ -56,7 +56,12 @@ class OWScatterPlot(widget.OWWidget):
         ("Data", Orange.data.Table, "set_data", widget.Default),
         ("Subset", Orange.data.Table, "set_subset_data")
     ]
-
+    UserAdviceMessages = [
+        widget.Message(
+            "Hold down the rigght mouse button while dragging to rotate the view",
+            "rotate-hint"
+        )
+    ]
     var_x = None
     var_y = None
     var_z = None
@@ -133,15 +138,41 @@ class OWScatterPlot(widget.OWWidget):
 
         box.setLayout(form)
         self.controlArea.layout().addWidget(box)
+        box = QGroupBox("Style")
+        box.setLayout(QFormLayout())
+        themecb = QComboBox()
+        mo = Q3DTheme.staticMetaObject  # type: QMetaObject
+        enum = mo.enumerator(mo.indexOfEnumerator("Theme"))
+        for i in range(enum.keyCount()):
+            name = enum.key(i)
+            if name.startswith("Theme"):
+                name = name[5:]
+            value = enum.value(i)
+            themecb.addItem(name, userData=value)
+
+        def set_theme(theme):
+            self.__scatter.setActiveTheme(Q3DTheme(theme))
+        themecb.activated[int].connect(set_theme)
+        box.layout().addRow("Theme", themecb)
+        self.controlArea.layout().addWidget(box)
         self.controlArea.layout().addStretch()
 
         self.__scatter = Q3DScatter()
         self.__scatter.setShadowQuality(Q3DScatter.ShadowQualityNone)
         self.__scatter.setOptimizationHints(Q3DScatter.OptimizationStatic)
-        # self.__scatter.setActiveTheme(Q3DTheme(Q3DTheme.ThemeIsabelle))
+
         self.mainArea.layout().addWidget(
             QWidget.createWindowContainer(self.__scatter)
         )
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Move:
+            print("window moved")
+        return super().eventFilter(obj, event)
+
+    def moveEvent(self, event):
+        print("move")
+        super().moveEvent(event)
 
     def sizeHint(self):
         return super().sizeHint().expandedTo(QSize(1027, 900))
