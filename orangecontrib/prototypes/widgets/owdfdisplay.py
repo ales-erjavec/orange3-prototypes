@@ -717,7 +717,18 @@ def summary_vector(data: pd.Series) -> str:
                 f"<tr><th>Max</th><td>{summary['max']:.6g}</td></tr>" \
                 f"</table>"
     elif isinstance(dtype, pd.core.dtypes.dtypes.CategoricalDtype):
-        return df_rich_text(pd.Categorical(data).describe())
+        dscr = pd.Categorical(data).describe()
+        maxitems = 5
+        if len(dscr) > maxitems:
+            head = dscr[:maxitems]
+            rest = dscr[maxitems:]
+            dscr = pd.DataFrame({
+                "counts": head.counts.tolist() + [rest.counts.sum()],
+                "freqs": head.freqs.tolist() + [rest.freqs.sum()],
+            },
+                index=pd.Categorical(head.index.tolist() + ["..."])
+            )
+        return df_rich_text(dscr)
     elif isinstance(dtype, pd.core.dtypes.dtypes.DatetimeTZDtype):
         return df_rich_text(data.describe())
     return text
@@ -736,6 +747,41 @@ def df_rich_text(df: pd.DataFrame) -> str:
     rows = (f"<tr>{''.join(r)}</tr>" for r in [header, *rows])
     text = f"<style>{style}</style>" \
            f"<table>" + "".join(rows) + "</table>"
+    return text
+
+
+def df_rich_text(df: pd.DataFrame) -> str:
+    return rich_text_table(
+        df.itertuples(index=False),
+        column_headers=df.columns,
+        row_headers=df.index
+    )
+
+
+def rich_text_table(
+        table: Iterable[Iterable[str]],
+        column_headers: Optional[Iterable[str]] = None,
+        row_headers: Optional[Iterable[str]] = None
+) -> str:
+    style = "th { text-align: right; };"
+    def th(text: str) -> str: return f"<th>{escape(str(text))}</th>"
+    def td(text: str) -> str: return f"<td>{escape(str(text))}</td>"
+
+    rows: List[List[str]] = []
+    if column_headers is not None:
+        header = [th(t) for t in ["", *column_headers]]
+        rows.append(header)
+
+    if row_headers is not None:
+        rowsiter = ([th(h), *map(td, row)] for h, row in zip(row_headers, table))
+    else:
+        rowsiter = ([*map(td, row)] for row in table)
+
+    rows.extend(rowsiter)
+
+    rows_ = [f"<tr>{''.join(r)}</tr>" for r in rows]
+    text = f"<style>{style}</style>" \
+           f"<table>" + "".join(rows_) + "</table>"
     return text
 
 
