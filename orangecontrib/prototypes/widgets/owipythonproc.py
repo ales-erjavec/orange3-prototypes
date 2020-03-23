@@ -16,13 +16,13 @@ from qtconsole.manager import QtKernelManager
 from orangewidget.widget import OWBaseWidget, Msg, Input, Output
 from orangewidget.settings import Setting
 
-from orangecontrib.prototypes.widgets.utils import remove_ansi_control
+from orangecontrib.prototypes.widgets.utils.kernel_client import remove_ansi_control
 from orangecontrib.prototypes.widgets.utils.editor import (
     TextEditShortcutFilter, PythonCodeEditor
 )
 from orangecontrib.prototypes.widgets.utils.spinner import Spinner
 from orangecontrib.prototypes.widgets.utils.asyncutils import get_event_loop
-from orangecontrib.prototypes.widgets.utils.kernelutils import (
+from orangecontrib.prototypes.widgets.utils.kernel_client import (
     on_reply, on_message, get_namespace, push_namespace
 )
 
@@ -73,8 +73,10 @@ class ScriptItem(QStandardItem):
         return self.data(ScriptItem.PathRole) or ""
 
 
-def qshortcut(str, macos_command_map=True):
-    sh = QKeySequence(str, QKeySequence.PortableText)
+def qshortcut(string: str, macos_command_map=True) -> QKeySequence:
+    """
+    """
+    sh = QKeySequence(string, QKeySequence.PortableText)
     assert sh.count() == 1
     key = sh[0]
     if sys.platform == "darwin":
@@ -83,8 +85,11 @@ def qshortcut(str, macos_command_map=True):
         swaped = False
 
     if not macos_command_map and swaped:
-        if key & Qt.ControlModifier:
+        key_ = key
+        if key_ & Qt.ControlModifier:
             key = key & (~Qt.ControlModifier) | Qt.MetaModifier
+        if key_ & Qt.MetaModifier:
+            key = key & (~Qt.MetaModifier) | Qt.ControlModifier
     return QKeySequence(key)
 
 
@@ -122,7 +127,7 @@ class OWIPythonConsole(OWBaseWidget):
         kernel_manager.start_kernel(
             extra_arguments=[
                 "--IPKernelApp.kernel_class="
-                "orangecontrib.prototypes.widgets.kernel.IpyKernelPushGet"
+                "orangecontrib.prototypes.widgets.utils.kernel.IpyKernelPushGet"
             ]
         )
         self.kernel_manager = kernel_manager
@@ -173,7 +178,7 @@ class OWIPythonConsole(OWBaseWidget):
         self.info.set_output_summary(self.info.NoOutput)
         self.__run_task = None  # type: Optional[asyncio.Task]
 
-        self.settingsAboutToBePacked.connect(self.save_state)
+        self.settingsAboutToBePacked.connect(self._save_state)
 
     def _handle_iopub_message(self, msg):
         msg_type = msg["msg_type"]
@@ -254,14 +259,13 @@ class OWIPythonConsole(OWBaseWidget):
         self.client.shutdown(restart=False)
         super().onDeleteWidget()
 
-    def save_state(self) -> Dict[str, object]:
+    def _save_state(self):
         self.splitter_state = self.splitter.saveState()
         self.contents = self.script_edit.toPlainText()
 
-        return {
-            "main-area-splitter-state": self.splitter_state,
-            "current-edit-contents": self.contents
-        }
+    def set_source(self, script):
+        self.script_edit.setPlainText(script)
+        self.contents = script
 
 
 T = TypeVar("T")
