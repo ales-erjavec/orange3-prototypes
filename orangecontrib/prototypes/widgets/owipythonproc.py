@@ -2,7 +2,7 @@ import sys
 import asyncio
 
 from concurrent.futures import Future
-from typing import List, Awaitable, TypeVar, Optional, Dict
+from typing import List, Awaitable, TypeVar, Optional
 from typing_extensions import TypedDict
 
 from AnyQt.QtCore import QSize, Qt
@@ -104,7 +104,7 @@ class OWIPythonConsole(OWBaseWidget):
     class Outputs:
         object_ = Output("object", object)
 
-    want_control_area = False
+    want_control_area = True
 
     #: Current script content
     contents: str = Setting(DEFAULT_SCRIPT)
@@ -228,7 +228,7 @@ class OWIPythonConsole(OWBaseWidget):
         self.setInvalidated(True)
         self.progressBarInit()
 
-    def _on_complete(self, f: 'Future'):
+    def _on_complete(self, f: 'asyncio.Future'):
         assert f is self.__run_task
         self.__run_task = None
         self.setInvalidated(False)
